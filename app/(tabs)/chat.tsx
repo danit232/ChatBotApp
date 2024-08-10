@@ -1,21 +1,63 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import Icon from 'react-native-vector-icons/FontAwesome';
+import { styles } from './chatStyle';
+import Animated, { useAnimatedStyle, withTiming, useSharedValue, withRepeat, cancelAnimation } from 'react-native-reanimated';
 
-// const URL_BASE = "http://127.0.0.1:8000/chatgpt";
-const URL_BASE = "http://192.168.100.94:8000/chatgpt"; //pruebas
+const URL_BASE = "http://192.168.100.94:8000/chatgpt"; // pruebas
 const TRAINING_PROMPT = `Eres Emilio Einstein, una mezcla entre un matemático puro y Albert`;
 
+interface Message {
+    role: string;
+    content: string;
+}
+
 export default function ChatScreen() {
-    const [conversations, setConversations] = useState([{ role: "system", content: TRAINING_PROMPT }]);
+    const [conversations, setConversations] = useState<Message[]>([{ role: "system", content: TRAINING_PROMPT }]);
     const [inputText, setInputText] = useState('');
     const [isRecording, setIsRecording] = useState(false);
     const [showHistory, setShowHistory] = useState(true);
     const scrollViewRef = useRef<ScrollView>(null);
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
+    const [isAISpeaking, setIsAISpeaking] = useState(false);
 
+    const AnimatedCircle: React.FC<{ isAISpeaking: boolean }> = ({ isAISpeaking }) => {
+        const scale = useSharedValue(1);
+        const opacity = useSharedValue(1);
+
+        useEffect(() => {
+            if (isAISpeaking) {
+                scale.value = withRepeat(
+                    withTiming(0.8, { duration: 1000 }),
+                    -1,
+                    true
+                );
+                opacity.value = withRepeat(
+                    withTiming(0.5, { duration: 1000 }),
+                    -1,
+                    true
+                );
+            } else {
+                cancelAnimation(scale);
+                cancelAnimation(opacity);
+                scale.value = withTiming(1, { duration: 500 });
+                opacity.value = withTiming(1, { duration: 500 });
+            }
+        }, [isAISpeaking]);
+
+        const animatedStyle = useAnimatedStyle(() => {
+            return {
+                transform: [{ scale: scale.value }],
+                opacity: opacity.value,
+            };
+        });
+
+        return (
+            <Animated.View style={[styles.circle, animatedStyle]} />
+        );
+    };
 
     useEffect(() => {
         renderConversationHistory();
@@ -24,7 +66,7 @@ export default function ChatScreen() {
     const sendMessage = async () => {
         if (inputText.trim() === '') return;
 
-        const newConversations = [
+        const newConversations: Message[] = [
             ...conversations,
             { role: "user", content: inputText.trim() },
             { role: "assistant", content: "escribiendo..." }
@@ -48,7 +90,12 @@ export default function ChatScreen() {
                 { role: "assistant", content: data.response }
             ]);
 
-            Speech.speak(data.response, { language: 'es-ES' });
+            setIsAISpeaking(true);
+            Speech.speak(data.response, { 
+                language: 'es-ES',
+                onDone: () => setIsAISpeaking(false),
+                onStopped: () => setIsAISpeaking(false)
+            });
         } catch (error) {
             console.error('Error:', error);
             setConversations(prev => [
@@ -85,14 +132,13 @@ export default function ChatScreen() {
         await recording.stopAndUnloadAsync();
         const uri = recording.getURI();
         setRecording(null);
-        // Here you would typically send the audio file to your server or process it
         console.log('Recording stopped and stored at', uri);
     };
 
     const renderConversationHistory = () => {
         return conversations.filter(message => message.role !== "system").map((message, index) => (
             <View key={index} style={[styles.messageBubble, message.role === "user" ? styles.userMessage : styles.assistantMessage]}>
-                <Text>{message.content}</Text>
+                <Text style={styles.messageBubbleText}>{message.content} </Text>
             </View>
         ));
     };
@@ -104,19 +150,24 @@ export default function ChatScreen() {
 
     return (
         <View style={styles.container}>
+            <View style={styles.circleContainer}>
+                <AnimatedCircle isAISpeaking={isAISpeaking} />
+                <AnimatedCircle isAISpeaking={isAISpeaking} />
+                <AnimatedCircle isAISpeaking={isAISpeaking} />
+            </View>
             <TouchableOpacity onPress={() => setShowHistory(!showHistory)} style={styles.toggleButton}>
                 <Text>{showHistory ? 'Hide History' : 'Show History'}</Text>
             </TouchableOpacity>
 
             {showHistory && (
-        <ScrollView 
-          ref={scrollViewRef}
-          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-          style={styles.chatHistory}
-        >
-          {renderConversationHistory()}
-        </ScrollView>
-      )}
+                <ScrollView
+                    ref={scrollViewRef}
+                    onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+                    style={styles.chatHistory}
+                >
+                    {renderConversationHistory()}
+                </ScrollView>
+            )}
 
             <View style={styles.inputContainer}>
                 <TextInput
@@ -136,46 +187,3 @@ export default function ChatScreen() {
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 10,
-    },
-    toggleButton: {
-        padding: 10,
-        backgroundColor: '#ddd',
-        alignItems: 'center',
-    },
-    chatHistory: {
-        flex: 1,
-        marginBottom: 10,
-    },
-    messageBubble: {
-        padding: 10,
-        borderRadius: 10,
-        marginBottom: 5,
-        maxWidth: '80%',
-    },
-    userMessage: {
-        alignSelf: 'flex-end',
-        backgroundColor: '#DCF8C6',
-    },
-    assistantMessage: {
-        alignSelf: 'flex-start',
-        backgroundColor: '#E5E5EA',
-    },
-    inputContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    input: {
-        flex: 1,
-        borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 5,
-        padding: 10,
-        marginRight: 10,
-        color:'white',
-    },
-});
